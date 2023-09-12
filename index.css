@@ -1,0 +1,79 @@
+* {
+    font-family: Consolas;
+}
+
+#memory {
+    height: 95vh;
+    float: left;
+}
+
+#panel {
+    float: left;
+    height: 95vh;
+    padding-left: 0.5vw;
+}
+
+#memory * {
+    margin: 0;
+    padding: 0;
+}
+
+#lines {
+    padding-right: 0.5vw;
+    text-align: right;
+    height: 100%;
+    overflow-y: hidden;
+    float: left;
+    border-style: solid;
+    border-color: white;
+    border-width: 2px;
+}
+
+#container {
+    height: 100%;
+    float: left;
+    position: relative;
+}
+
+#code {
+    color: gray;
+    caret-color: black;
+    resize: none;
+    height: 100%;
+    outline: none;
+    overflow: scroll;
+}
+
+#highlighted {
+    pointer-events: none;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    white-space: pre;
+    border-style: solid;
+    border-color: transparent;
+    border-width: 2px;
+    position: absolute;
+    top: 0px;
+    left: 0px;
+}
+
+.keyword {
+    color: blue;
+}
+
+.digit {
+    color: orange;
+}
+
+.str {
+    color: green;
+}
+
+.comment {
+    color: gray;
+}
+
+.error {
+    color: red
+}

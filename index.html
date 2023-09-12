@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>My Machine</title>
+        <link rel="stylesheet" href="index.css">
+        <script src="main.js"></script>
+        <script>
+            window.onload = onLoad;
+            window.onresize = onResize;
+        </script>
+    </head>
+    <body>
+        <div id="memory">
+            <p id="lines"></p>
+            <div id="container">
+                <textarea id="code" wrap="off" spellcheck="false" oninput="onInput(event)" onscroll="onScroll(event)"></textarea>
+                <pre id="highlighted" spellcheck="false"></pre>
+            </div>
+        </div>
+        <div id="panel">
+            <p id="error">Error: none.</p>
+            <button onclick="update('reset')">Reset</button><!--&#x23F9;-->
+            <button onclick="update('next')">Next</button><!--&#x25B6;-->
+            <button onclick="update('run')">Run</button><!--&#x25B6;&#x25B6;-->
+        </div>
+    </body>
+</html>
