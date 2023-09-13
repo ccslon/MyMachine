@@ -1,3 +1,5 @@
+//TODO: Add stack to bottom?
+
 //Interface
 let text;
 let error_message;
@@ -27,7 +29,6 @@ function compile() {
     }    
 }
 function update(mode) {
-    console.log(LEXICON);
     try {
         compile();
         computer[mode]();
@@ -61,19 +62,22 @@ function adjustLines() {
 function highlight() {
     const highlights = [];
     for (const line of text.value.split('\n')) {
-        let hLine = "";
-        for (let start = 0; start < line.length; start += match[0].length) {
-            for (const [type, regexp] of Object.entries(HIGHLIGHTS)) {
-                var match = regexp.exec(line.slice(start));
+        var hline = "";
+        for (let start = 0; start < line.length; start += match? match[0].length : 1) {
+            for (const [type, regex] of Object.entries(HIGHLIGHTS)) {
+                var match = regex.exec(line.slice(start));
                 if (match !== null) {
-                    hLine += HIGHLIGHTER[type]? HIGHLIGHTER[type](match[0]) : match[0];
+                    hline += HIGHLIGHTER[type](match[0]);
                     break;
                 }
             }
+            if (match === null){
+                hline += line[start];
+            }
         }
-        highlights.push(hLine);
+        highlights.push(hline);
     }
-    if (highlights[highlights.length-1] === "") {
+    if (highlights[highlights.length-1] === "") { //Fixes a weird bug with the highlighting 
         highlights.push("");
     }
     highlighted.innerHTML = highlights.join("<br>");
@@ -87,27 +91,22 @@ class Token {
         this.match = match;
     }
 }
-function tokenize(string) {
+function lex(string) {
     const tokens = [];
-    console.log(string);
-    for (let start = 0; start < string.length; start += match[0].length) {
+    for (let start = 0; start < string.length; start += match? match[0].length : 1) {
         for (const [type, regexp] of Object.entries(LEXICON)) {
             var match = regexp.exec(string.slice(start));
-            console.log(match);
             if (match !== null) {
-                if (type !== "white") {
-                    tokens.push(new Token(type, match[0], match));
-                }
+                tokens.push(new Token(type, match[0], match));
                 break;
             }
         }
     }
     tokens.push(new Token("eof", null, string.length));
-    console.log(tokens);
     return tokens;
 }
 
-//Parse
+//Nodes
 class Data {
     constructor(value) {
         this.value = value;
@@ -124,16 +123,6 @@ class Str extends Data {
 class Num extends Data {
     constructor(value) {
         super(Number(value));
-    }
-}
-class Decimal extends Data {
-    constructor(value) {
-        super(parseFloat(value));
-    }
-}
-class Integer extends Data {
-    constructor(value) {
-        super(parseInt(value));
     }
 }
 class Id extends Data {
@@ -169,24 +158,33 @@ class Instruction extends Data {
         return this.original;
     }
 }
+
+//Parse
 class Parser {
     parse(line) {
-        this.tokens = tokenize(line);
+        this.tokens = lex(line);
         this.index = 0;
         return this.data();
     }
-    accept(symbol) {
-        if (this.tokens[this.index].type === symbol) {
-            return this.tokens[this.index++];
+    next() {
+        return this.tokens[this.index++];
+    }
+    peek(...symbols) {
+        const token = this.tokens[this.index];
+        return symbols.includes(token.type) || symbols.includes(token.value);
+    }
+    accept(...symbols) {
+        if (this.peek(...symbols)) {
+            return this.next();
         }
         return null;
     }
-    expect(symbol) {
-        const token = this.accept(symbol);
-        if (token !== null) {
-            return token;
+    expect(...symbols) {
+        if (this.peek(...symbols)) {
+            return this.next();
         }
-        throw new CompileError(`Expected ${symbol}, got "${this.tokens[this.index].value}"`);
+        this.error();
+        //throw new CompileError(`Expected ${symbol}, got "${this.tokens[this.index].value}"`);
     }
     error() {
         const token = this.tokens[this.index];
@@ -236,74 +234,73 @@ class Parser {
     }
     data() {
         /**
-         * DATA = |str|num|keyword ARGUMENTS
+         * DATA = |str|num|keyword ARGS
          */
-        let token;
         if (this.accept("eof")) {
             return null;
-        } else if ((token = this.accept("str")) !== null) {
+        } else if (this.peek("str")) {
+            let token = this.next();
             this.expect("eof");
-            return token.value.slice(1, token.value.length-1)
-        } else if ((token = this.accept("num")) !== null) {
+            return token.value.slice(1, token.value.length-1);
+        } else if (this.peek("num")) {
+            let token = this.next();
             this.expect("eof");
             return Number(token.value);
-        } else if ((token = this.accept("keyword")) !== null) {
-            
-            return new Instruction(token.match[2], token.match[3], this.args());
+        } else if (this.peek("keyword")) { 
+            let token = this.next();           
+            return new Instruction(token.match[1], token.match[2], this.args());
         } else {
             this.error();
         }
     }
     args() {
         /**
-         * ARGUMENTS = |ARGUMENT TAIL
+         * ARGUMENTS = [ARG {',' ARG}]
          */
         const args = [];
-        if (this.accept("eof")) {
-            return args;
+        if (this.peek("str","num","id",'[')) {
+            args.push(this.arg());
+            while (this.accept(',')) {
+                args.push(this.arg());
+            }
         }
-        args.push(this.arg(), ...this.tail());
-        return args;
-    }
-    tail() {
-        /**
-         * TAIL = |comma ARGUMENT TAIL
-         */
-        const args = [];
-        if (this.accept("eof")) {
-            return args;
-        }
-        this.expect("comma");
-        args.push(this.arg(), ...this.tail());
         return args;
     }
     arg() {
         /**
-         * ARGUMENT = str|ADDRESS
+         * ARGUMENT = str|SUM
          */
-        let token;
-        if ((token = this.accept("str")) !== null) {
-            return new Str(token.value);
+        if (this.peek("str")) {
+            return new Str(this.next().value);
         } 
-        return this.address();        
+        return this.sum();        
+    }
+    sum() {
+        /**
+         * SUM = ADDRESS {'+' ADDRESS}
+         */
+        let sum = this.address();
+        while (this.accept('+')) {
+            sum = new Sum(sum, this.address());
+        }
+        return sum;
     }
     address() {
-        let token;
+        /**
+         * ADDRESS = num|id|'[' SUM ']'
+         */
         let address;
-        if ((token = this.accept("num")) !== null) {
-            address = new Num(token.value);
-        } else if ((token = this.accept("id")) !== null) {
-            address = new Id(token.value);
-        } else if ((token = this.accept("lbrace")) !== null) {
-            address = new Deref(this.address());
-            this.expect("rbrace");
+        if (this.peek("num")) {
+            address = new Num(this.next().value);
+        } else if (this.peek("id")) {
+            address = new Id(this.next().value);
+        } else if (this.accept("[")) {
+            address = new Deref(this.sum());
+            this.expect("]");
         } else {
             this.error();
         }
-        if (this.accept("plus")) {
-            return new Sum(address, this.address());
-        }
-        return address
+        return address;
     }
 }
 
@@ -336,11 +333,7 @@ function cat(op1, op2) {
     return op1.toString() + op2.toString();
 }
 function cast(op) {
-    if (/\d+\.\d+/.test(op)) { //float 
-        return parseFloat(op);
-    } else { //int
-        return parseInt(op);
-    }
+    return Number(op);
 }
 
 class Machine {
@@ -425,7 +418,6 @@ class Machine {
     next() {
         this.update();
         const data = this.memory[this.counter];
-        console.log(data.condition);
         if (data instanceof Instruction && CODES[data.condition](this.flag, 0)) {
             data.evaluate(this);
         } else {
@@ -481,7 +473,7 @@ class Machine {
     //Control
     INC() { this.counter++; }
     MOVE(value, into) {
-        if (this.memory.length <= into && into < 10000) {
+        if (this.memory.length <= into && into < 1024) {
             this.memory = this.memory.concat(Array(into - this.memory.length + 1).fill(null));
         }
         this.memory[into] = value;
@@ -541,7 +533,7 @@ class Machine {
     EQUIV(...args) { this.binary(teq, ...args); }
 
     MOVES(value, into) {
-        if (this.memory.length <= into && into < 10000) {
+        if (this.memory.length <= into && into < 1024) {
             this.memory = this.memory.concat(Array(into - this.memory.length + 1).fill(null));
         }
         this.memory[into] = value;
@@ -563,41 +555,28 @@ class Machine {
     RIGHTS(op1, op2, into) { this.MOVES(op1 >> op2, into); }
     CATS(op1, op2, into) { this.MOVES(cat(op1, op2), into); }
 }
+
 const LEXICON = {
-    str: /('[^']*')|("[^"]*")/,
-    keyword: new RegExp(`(${Object.getOwnPropertyNames(Machine.prototype).filter(property => 
+    str: /^(('[^']*')|("[^"]*"))/,
+    keyword: new RegExp(`^\\b(${Object.getOwnPropertyNames(Machine.prototype).filter(property => 
         Machine.prototype[property] instanceof Function && property === property.toUpperCase()
     ).join('|')})(${Object.keys(CODES).join('|')})?\\b`, 'i'),
-    id: /[a-z]\w*/i,
-    num: /-?((\d*\.\d+)|(\d+))/,
-    comma: /,/,
-    plus: /\+/,
-    lbrace: /\[/,
-    rbrace: /\]/,
-    white: /\s+/,
-    error: /\S+/
+    id: /^[a-z]\w*/i,
+    num: /^-?((\d*\.\d+)|(\d+))/,
+    comma: /^,/,
+    plus: /^\+/,
+    lbrace: /^\[/,
+    rbrace: /^\]/,
+    error: /^\S+/
 };
+
 const HIGHLIGHTS = {
-    str: /('[^']*('|$))|("[^"]*("|$))/,
+    str: /^(('[^']*('|$))|("[^"]*("|$)))/,
     keyword: LEXICON.keyword,
-    id: LEXICON.id,
-    digit: /\d+/,
-    point: /\./,
-    comma: LEXICON.comma,
-    plus: LEXICON.plus,
-    lbrace: LEXICON.lbrace,
-    rbrace: LEXICON.rbrace,
-    colon: new RegExp(`${LABEL}`),
-    white: /\s+/,
-    comment: new RegExp(`${COMMENT}.*$`),
-    other: /\S+/
+    digit: /^\d+/,
+    comment: new RegExp(`^${COMMENT}.*$`),
 };
-for (const [type, regexp] of Object.entries(LEXICON)) {
-    LEXICON[type] = new RegExp(`^(${regexp.source})`, regexp.flags);
-}
-for (const [type, regexp] of Object.entries(HIGHLIGHTS)) {
-    HIGHLIGHTS[type] = new RegExp(`^(${regexp.source})`, regexp.flags);
-}
+
 const HIGHLIGHTER = {
     str: match => `<span class="str">${match}</span>`,
     keyword: match => `<span class="keyword">${match}</span>`,
@@ -607,7 +586,6 @@ const HIGHLIGHTER = {
 
 class CompileError extends Error {}
 class RuntimeError extends Error {}
-
 /*
 push 6
 call fact
